@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#10122d" />
+  <meta name="description" content="Сделай свой квиз для друзей: добавляй вопросы, настраивай ответы и их вероятности, отправляй ссылку." />
+  <title>Полетим вместе? — Создай свой квиз для друзей</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="page-glow page-glow--one" aria-hidden="true"></div>
+  <div class="page-glow page-glow--two" aria-hidden="true"></div>
+
+  <div class="site-wrap">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="На главную">
+        <span class="brand-mark" aria-hidden="true">✦</span>
+        <span>flight<span class="brand-accent">quiz</span><span class="brand-period">.</span></span>
+      </a>
+      <div class="topbar-right">
+        <span class="topbar-note">Твой квиз. Твои правила.</span>
+        <button class="button button--ghost button--small" id="homeButton" type="button">Мой конструктор</button>
+      </div>
+    </header>
+
+    <section class="hero" id="hero">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="eyebrow-dot"></span> ИГРА ДЛЯ СВОИХ</div>
+        <h1>Кто реально <span class="gradient-text">тебя знает?</span></h1>
+        <p>Придумай вопросы, выбери свои ответы и отправь друзьям ссылку. Посмотрим, кто окажется настоящим бестиком.</p>
+        <div class="hero-chips"><span>✦ Свои вопросы</span><span>✦ Вероятности ответов</span><span>✦ Без регистрации</span></div>
+      </div>
+      <div class="ticket" aria-hidden="true">
+        <div class="ticket-top"><span>BOARDING PASS</span><span>FQ / 2027</span></div>
+        <div class="ticket-flight">BFF <span>✈</span> 2027</div>
+        <div class="ticket-route"><div><small>FROM</small><strong>ME</strong></div><div class="ticket-dash"></div><div><small>TO</small><strong>YOU</strong></div></div>
+        <div class="ticket-divider"></div>
+        <div class="ticket-bottom"><span>DESTINATION<br><b>BEST FRIEND</b></span><span>CLASS<br><b>TOP SECRET</b></span><span class="ticket-stamp">♡</span></div>
+      </div>
+    </section>
+
+    <main id="app" class="app-shell" aria-live="polite"></main>
+
+    <footer class="site-footer"><span>flightquiz · Сделано для весёлых тестов с друзьями</span><span>Вопросы хранятся в твоём браузере</span></footer>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
