@@ -1,8 +1,10 @@
 /*
   FlightQuiz: полностью статический квиз.
   Данные автора сохраняются в localStorage.
-  При отправке квиз сжимается и помещается в #quiz=... адреса страницы.
-  Для работы на GitHub Pages не нужен сервер, база данных или API-ключ.
+  При отправке квиз сжимается и помещается в ?quiz=... адреса страницы.
+  Короткие ссылки создаются через публичный API is.gd; если API недоступен,
+  остаётся полная ссылка. Старые ссылки с #quiz= по-прежнему открываются.
+  Для работы на GitHub Pages не нужен собственный сервер или API-ключ.
 */
 (() => {
   'use strict';
@@ -22,6 +24,9 @@
     selected: 0,
     bankIndex: 0,
     shareUrl: '',
+    fullShareUrl: '',
+    shareNote: '',
+    shareBusy: false,
     playQuiz: null,
     preview: false,
     step: 0,
@@ -95,7 +100,16 @@
     toastTimer = setTimeout(() => toastEl.classList.remove('visible'), 3100);
   }
 
-  function sourceUrl() { return location.href.split('#')[0]; }
+  function sourceUrl() {
+    // Не переносим старые параметры ?quiz= и #quiz= в новые ссылки.
+    const url = new URL(location.href);
+    url.search = '';
+    url.hash = '';
+    return url.href;
+  }
+
+  // Кэш не даёт заново обращаться к сокращателю при повторном нажатии.
+  const shortLinkCache = new Map();
 
   function probPct(answers, index) {
     const total = answers.reduce((sum, a) => sum + Math.max(0, Number(a.weight) || 0), 0);
@@ -196,9 +210,9 @@
           <section class="panel bottom-panel"><div class="bottom-panel-head"><div><div class="section-label">ПОЧТИ ГОТОВО</div><h3>Отправь тест друзьям</h3></div><span class="badge-count">✦ готово к игре</span></div>
             <label class="field-label" for="quizTitle">Название теста</label><input class="input" id="quizTitle" maxlength="100" data-role="quiz-title" value="${esc(editor.title)}" />
             <div class="stats-mini"><span><b>${editor.questions.length}</b> вопросов</span><span><b>${totalOptions}</b> вариантов</span><span><b>${QUESTION_BANK.length}</b> идей в банке</span></div>
-            <div class="bottom-actions"><button type="button" class="button" data-action="share">↗ Создать ссылку</button><button type="button" class="button button--secondary" data-action="preview">Посмотреть как игрок</button></div>
-            ${state.shareUrl ? `<div class="share-output"><div class="field-label confirm-note">Ссылка готова — отправь её друзьям:</div><div class="share-url" tabindex="0">${esc(state.shareUrl)}</div><button class="button button--ghost button--small" type="button" data-action="copy-share">Скопировать ссылку</button></div>` : ''}
-            <div class="tip">Сайт работает на GitHub Pages без базы данных: вопросы и правильные ответы упаковываются в ссылку. Результаты друзья увидят у себя на экране.</div>
+            <div class="bottom-actions"><button type="button" class="button" data-action="share" ${state.shareBusy ? 'disabled' : ''}>${state.shareBusy ? 'Создаю короткую ссылку…' : '↗ Создать короткую ссылку'}</button><button type="button" class="button button--secondary" data-action="preview">Посмотреть как игрок</button></div>
+            ${state.shareUrl ? `<div class="share-output"><div class="field-label confirm-note">${esc(state.shareNote || 'Ссылка готова — отправь её друзьям:')}</div><div class="share-url" tabindex="0">${esc(state.shareUrl)}</div><button class="button button--ghost button--small" type="button" data-action="copy-share">Скопировать ссылку</button>${state.fullShareUrl && state.fullShareUrl !== state.shareUrl ? '<button class="button button--ghost button--small" type="button" data-action="copy-full-share">Скопировать полную ссылку</button>' : ''}</div>` : ''}
+            <div class="tip">Сайт работает на GitHub Pages без базы данных. Данные квиза упакованы в ссылку, а для её сокращения используется is.gd. Если сервис недоступен, можно скопировать полную ссылку. Результаты друзья увидят у себя на экране.</div>
           </section>
         </div>
       </div>`;
@@ -401,18 +415,55 @@
     } catch (e) {return false;}
   }
 
+  async function shortenLink(longUrl) {
+    if (shortLinkCache.has(longUrl)) return shortLinkCache.get(longUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      // Полная ссылка передаётся сервису целиком, включая параметр ?quiz=.
+      const endpoint = `https://is.gd/create.php?format=json&url=${encodeURIComponent(longUrl)}`;
+      const response = await fetch(endpoint, {signal: controller.signal});
+      if (!response.ok) throw new Error(`is.gd: HTTP ${response.status}`);
+      const data = await response.json();
+      if (typeof data.shorturl !== 'string' || !/^https:\/\/is\.gd\/[a-zA-Z0-9_-]+$/.test(data.shorturl)) {
+        throw new Error(data.errormessage || 'Не удалось сократить ссылку');
+      }
+      shortLinkCache.set(longUrl, data.shorturl);
+      return data.shorturl;
+    } catch (error) {
+      console.warn('Сокращатель ссылок недоступен', error);
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   async function makeShareLink() {
+    if (state.shareBusy) return;
     const error = validateEditor();
     if (error) return toast(error);
+    state.shareBusy = true;
+    render();
     try {
       const encoded = await encodeQuiz(snapshot());
-      const url = `${sourceUrl()}#quiz=${encoded}`;
-      state.shareUrl = url;
-      render();
-      if (await copyText(url)) toast('Ссылка создана и скопирована!');
+      // Параметры ?... сохраняются при переходе через сокращатели ссылок.
+      // Раньше здесь был #quiz=, который в goo.su терялся.
+      const longUrl = `${sourceUrl()}?quiz=${encoded}`;
+      const shortUrl = await shortenLink(longUrl);
+      state.fullShareUrl = longUrl;
+      state.shareUrl = shortUrl || longUrl;
+      state.shareNote = shortUrl
+        ? 'Короткая ссылка готова — отправь её друзьям:'
+        : 'Сокращатель сейчас недоступен. Ниже полная рабочая ссылка:';
+      if (await copyText(state.shareUrl)) toast(shortUrl ? 'Короткая ссылка скопирована!' : 'Полная ссылка скопирована!');
       else toast('Ссылка готова — скопируй её из блока ниже.');
-      if (url.length > 10000) toast('Ссылка длинная: сократи число вопросов или ответов для удобной отправки.');
-    } catch (e) {console.error(e); toast('Не удалось создать ссылку. Попробуй обновить браузер.');}
+    } catch (error) {
+      console.error(error);
+      toast('Не удалось создать ссылку. Попробуй обновить браузер.');
+    } finally {
+      state.shareBusy = false;
+      render();
+    }
   }
 
   function startPreview() {
@@ -501,6 +552,7 @@
       case 'import': document.getElementById('importFile')?.click(); break;
       case 'share': makeShareLink(); break;
       case 'copy-share': copyText(state.shareUrl).then(ok => toast(ok ? 'Ссылка скопирована!' : 'Скопируй ссылку вручную из блока выше.')); break;
+      case 'copy-full-share': copyText(state.fullShareUrl).then(ok => toast(ok ? 'Полная ссылка скопирована!' : 'Не получилось скопировать полную ссылку.')); break;
       case 'preview': startPreview(); break;
       case 'go-home': goHome(); break;
       case 'start-play': state.mode = 'play'; state.step = 0; state.guesses = []; render(); scrollApp(); break;
@@ -585,8 +637,11 @@
     }
   });
 
-  async function readHashQuiz() {
-    if (!location.hash.startsWith('#quiz=')) {
+  async function readSharedQuiz() {
+    // Поддерживаем и новый формат ?quiz=, и старый формат #quiz=.
+    const encoded = new URLSearchParams(location.search).get('quiz') ||
+      (location.hash.startsWith('#quiz=') ? location.hash.slice('#quiz='.length) : '');
+    if (!encoded) {
       state.mode = 'builder';
       state.playQuiz = null;
       state.preview = false;
@@ -594,7 +649,6 @@
       return;
     }
     try {
-      const encoded = location.hash.slice('#quiz='.length);
       state.playQuiz = await decodeQuiz(encoded);
       state.preview = false;
       state.mode = 'intro';
@@ -609,6 +663,7 @@
   }
 
   homeButton.addEventListener('click', goHome);
-  window.addEventListener('hashchange', readHashQuiz);
-  readHashQuiz();
+  window.addEventListener('hashchange', readSharedQuiz);
+  window.addEventListener('popstate', readSharedQuiz);
+  readSharedQuiz();
 })();
